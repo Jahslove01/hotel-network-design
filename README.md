@@ -75,7 +75,7 @@ The routers are joined in a triangle with serial cables. On a serial link, the *
 
 ```
 interface se0/2/1
- ip address 10.10.10.x 255.255.255.252
+ ip address 10.10.10.9 255.255.255.252
  clock rate 64000
  no shutdown
 ```
@@ -110,8 +110,8 @@ The process ID (10) only matters on the local router; neighbours don't need to m
 
 ```
 hostname F3-Router
-ip domain-name <domain>
-username <user> secret <password>
+ip domain-name itil
+username itil secret itill
 crypto key generate rsa   (1024 bits)
 line vty 0 15
  login local
