@@ -145,6 +145,42 @@ An access point on each floor, secured with WPA2-PSK and AES.
 
 The first ping reply took 723 ms and the rest took 1 to 13 ms. The first packet waited for ARP to resolve the next-hop MAC address; after that the entry was cached.
 
+## Key concepts and design choices
+
+**Why router-on-a-stick on each floor?** Each floor has three departments or fewer, so one router link carrying three VLANs is plenty. It needs no extra hardware: one cable per floor and a subinterface per VLAN. The cost is that every packet between departments goes up to the router and back down the same link. That's fine at this size, but it's the first thing to change if a floor gets busy (a Layer 3 switch would route between VLANs itself).
+
+**Why /30 subnets between routers?** A point-to-point link only ever has two devices. A /30 gives exactly two usable addresses, so no addresses are wasted, and each link is clearly its own network in the routing table.
+
+**Why OSPF, and why a single area?** The brief asks for OSPF, and it's a good fit. OSPF builds a full map of the network and picks routes by cost (based on bandwidth), and it reconverges quickly when a link fails. A network of three routers is far too small to need more than one area, so everything sits in area 0, the backbone. Multiple areas are for large networks, where they keep each router's map small.
+
+| | RIPv2 | OSPF (used here) |
+| --- | --- | --- |
+| Picks routes by | Hop count | Cost (bandwidth) |
+| Limit | 15 hops | Scales with areas |
+| Updates | Whole table every 30 s | Small hellos; updates only on change |
+| Recovery after a failure | Slow | Fast |
+| Setup | Very simple | More planning |
+
+**Why a triangle of routers?** Joining all three routers to each other means there are always two paths between any two floors. If one serial link fails, OSPF notices (missed hellos) and reroutes traffic through the third router. This is the one piece of real redundancy in the design.
+
+**Why DHCP on each floor's router?** Each router already owns the gateway address for its floor's VLANs, so serving DHCP there needs no relay and no separate server. The trade-off is that address management is spread over three devices instead of one central server.
+
+## Design evaluation
+
+**Performance.** Inside a floor, traffic is switched at full speed. Between departments on the same floor, traffic crosses the router-on-a-stick trunk twice, which is fine for three VLANs. The weak point is the router links: serial at a 64 kbps clock rate is far slower than Ethernet. The brief required serial, but in a real building whose routers all sit in one server room, gigabit Ethernet or fibre between them would be the obvious choice.
+
+**Scalability.** Each department has a /24 (254 usable addresses), which leaves plenty of room per department. Adding a department means a VLAN, a subinterface, a DHCP pool and one OSPF network statement. Adding a floor means a router and a switch joined into the OSPF area. OSPF scales well beyond this size, so the routing protocol won't need to change as the hotel grows.
+
+**Reliability.** The router triangle gives path redundancy, so one failed serial link doesn't cut any floor off. But each floor still depends on a single router, a single switch and a single trunk between them, and any one of those failing takes the whole floor offline. Improvements would be redundant uplinks, a second switch per floor, and a first-hop redundancy protocol such as HSRP.
+
+**Security.** VLANs keep each department's broadcast traffic separate. SSH replaces Telnet for remote management, and port security locks the IT test PC's port to a single device. Gaps remain:
+- No ACLs, so any department can reach any other (Reception can reach Finance).
+- Wi-Fi uses one shared WPA2 passphrase per floor, which guests and staff would share.
+- Port security covers only one port; every other port is open.
+- No `enable secret` yet.
+
+Priorities would be ACLs between departments, a separate guest Wi-Fi VLAN, port security and shutdown of unused ports on every switch, and `enable secret` everywhere.
+
 ## What I'd improve in version 2
 
 - **Wildcard masks in OSPF.** I typed subnet masks (`255.255.255.252`) in the `network` commands. IOS accepted and converted them, but the command expects a wildcard (`0.0.0.3`), and that's the syntax to use.
